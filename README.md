@@ -1,23 +1,88 @@
-# Dimuon Invariant Mass Analysis
+# Dimuon Analysis Framework
 
-## Overview
-This project contains analysis codes to study the dimuon mass distribution change of $€omega$ and $€phi$ mesons in the forward rapidity region ($-3.6 < y < -2.5$). 
-The analysis is based on data from high-energy physics experiments and uses ROOT.
-
-We separate the heavy data processing (C++) from the visual plotting (Python/PyROOT) to make the workflow faster and more flexible.
+This framework is designed for analyzing low-mass dimuon spectra, focusing on the yield calculation of $\omega$ and $\phi$ mesons. It provides a structured pipeline from data preparation to background estimation, signal extraction, and efficiency correction.
 
 ## Directory Structure
-* `include/` : Header files (e.g., `DimuonAnalyzer.h`).
-* `src/` : C++ source codes for data processing and fitting.
-* `scripts/` : Python scripts using PyROOT to draw and save plots.
 
-## Prerequisites
-* ROOT (v6.24 or later recommended)
-* C++ compiler supporting C++11 or later (g++, clang, etc.)
-* Python 3 with PyROOT enabled
+- `src/`: Contains C++ source files (ROOT) for each step of the analysis.
+- `include/`: Shared header files defining the analysis interface.
+- `macros/`: Compiled binaries for different analysis configurations.
 
-## How to Compile
-Use `g++` with `root-config` to compile the C++ core logic. Run the following command in the `myAnalysis` directory:
+## Analysis Workflow
 
+The analysis follows a sequential numbered pipeline:
+
+1. **Step 00 (Main Macros)**: Entry points for various analysis types (Data, MC, and specific cut studies).
+    - `00_dimuon_macro_forEM.cxx`: Standard EM analysis including correction.
+    - `00_dimuon_macro_forEM_mc.cxx`: Monte Carlo analysis for efficiency/acceptance.
+2. **Step 01 (Histogramming)**: 
+    - `01_Making1DmassfromHnSparse.cxx`: Extracts 1D/2D distributions from `THnSparse`.
+3. **Step 02 (Preprocessing & Background)**:
+    - `02_LikeSignMethod.cxx`: Combinatorial background estimation.
+    - `02_CalAcceptance_Efficiency.cxx`: Calculates Acceptance, Efficiency, and Acceptance $\times$ Efficiency (1D/2D).
+4. **Step 03 (Signal Fitting)**:
+    - `03_PeakFit_CrystalBall_pol4.cxx`: Crystal Ball with 4th-order polynomial background.
+5. **Step 04 (Yield Calculation)**:
+    - `04_YieldCalcuration_*.cxx`: Calculates raw yields.
+6. **Step 05 (Correction & Cross Section)**:
+    - `05_correction.cxx`: Applies Acceptance $\times$ Efficiency and Luminosity corrections to calculate the production cross section.
+
+## Build Instructions
+
+To compile the analysis framework, ensure that ROOT is installed.
+
+### 1. Standard Analysis (Full Chain)
 ```bash
-g++ src/run_analysis.cxx src/DimuonAnalyzer.cxx -o run_analysis $(root-config --cflags --libs) -I./include/
+g++ src/00_dimuon_macro_forEM.cxx \
+    src/01_Making1DmassfromHnSparse.cxx \
+    src/02_LikeSignMethod.cxx \
+    src/03_PeakFit_CrystalBall_pol4.cxx \
+    src/04_YieldCalcuration_CrystalBall_pol4.cxx \
+    src/05_correction.cxx \
+    -Iinclude `root-config --cflags --libs` -o macros/run_analysis
+```
+
+### 2. MC Efficiency Analysis
+Includes Acceptance, Efficiency, and Acc $\times$ Eff calculations.
+```bash
+g++ src/00_dimuon_macro_forEM_mc.cxx \
+    src/01_Making1DmassfromHnSparse.cxx \
+    src/02_Check_mc_mass.cxx \
+    src/02_CalAcceptance_Efficiency.cxx \
+    -Iinclude `root-config --cflags --libs` -o macros/run_analysis_mc
+```
+
+### 3. Production Cross Section (Independent Compilation)
+If you need to compile only the production cross section part:
+```bash
+g++ src/00_dimuon_macro_forEM_production.cxx \
+    src/01_Making1DmassfromHnSparse.cxx \
+    src/02_LikeSignMethod.cxx \
+    src/03_PeakFit_CrystalBall_pol4.cxx \
+    src/04_YieldCalcuration_CrystalBall_pol4.cxx \
+    src/05_correction.cxx \
+    -Iinclude `root-config --cflags --libs` -o macros/run_production
+```
+
+## How to Run
+
+1. **Calculate Acceptance & Efficiency**:
+   ```bash
+   ./macros/run_analysis_mc
+   ```
+   This generates `AcceptanceEfficiency.root` containing `Omega/AccEff_Omega_Pt`, etc.
+
+2. **Calculate Production Cross Section**:
+   Ensure `AcceptanceEfficiency.root` is available (as `acceptance_weight.root` or updated in the code).
+   ```bash
+   ./macros/run_analysis
+   ```
+
+## Features
+- **Acc x Eff Correction**: Separate calculation of Acceptance (Acc/Gen) and Efficiency (Reco/Acc).
+- **Production Cross Section**: Automated calculation using corrected yields and luminosity.
+- **2D Maps**: Support for 2D ($p_T, y$) acceptance and efficiency maps.
+
+## Dependencies
+- ROOT (CERN) 6.xx
+- C++11 or higher
