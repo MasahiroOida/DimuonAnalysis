@@ -86,7 +86,6 @@ void YieldCalcuration_CrystalBall_pol4(TFile *input_FitResult) {
             while ((keyPt = (TKey *)nextPt())) {
                 if (TString(keyPt->GetClassName()) == "TDirectoryFile") {
                     TDirectory *ptDir = (TDirectory *)keyPt->ReadObj();
-                    if (TString(ptDir->GetName()) == "Pt_0to30" || TString(ptDir->GetName()) == "Pt_0to10") continue;
                     TDirectory *outPtDir = outTopDir->mkdir(ptDir->GetName());
 
                     TH1F *LikeSignSig = (TH1F *)ptDir->Get("LikeSignSig_fit");
@@ -96,37 +95,50 @@ void YieldCalcuration_CrystalBall_pol4(TFile *input_FitResult) {
                     TParameter<double>* p_min = (TParameter<double>*)ptDir->Get("ptmin");
                     TParameter<double>* p_max = (TParameter<double>*)ptDir->Get("ptmax");
 
-                    if(LikeSignSig && totalfit && fitRes && p_range) {
+                    if(LikeSignSig && totalfit && fitRes && p_range && p_min && p_max) {
                         Yield y = yieldCal_CrystalBall_pol4(LikeSignSig, totalfit, fitRes, p_range->GetVal());
-                        pt_vec.push_back(0.5 * (p_max->GetVal() + p_min->GetVal()));
-                        pt_err_vec.push_back(0.5 * p_range->GetVal());
-                        omega_yield_vec.push_back(y.Omega_yield);
-                        omega_yield_err_vec.push_back(y.Omega_yield_err);
-                        phi_yield_vec.push_back(y.Phi_yield);
-                        phi_yield_err_vec.push_back(y.Phi_yield_err);
+                        
+                        // Only add to spectrum vectors if it's not a total pt bin (e.g., range < 9.0)
+                        if (p_range->GetVal() < 9.0) {
+                            pt_vec.push_back(0.5 * (p_max->GetVal() + p_min->GetVal()));
+                            pt_err_vec.push_back(0.5 * p_range->GetVal());
+                            omega_yield_vec.push_back(y.Omega_yield);
+                            omega_yield_err_vec.push_back(y.Omega_yield_err);
+                            phi_yield_vec.push_back(y.Phi_yield);
+                            phi_yield_err_vec.push_back(y.Phi_yield_err);
 
-                        // Omega parameters (Pars 5-9)
-                        omega_mean_vec.push_back(totalfit->GetParameter(6));
-                        omega_mean_err_vec.push_back(totalfit->GetParError(6));
-                        omega_sigma_vec.push_back(totalfit->GetParameter(7));
-                        omega_sigma_err_vec.push_back(totalfit->GetParError(7));
-                        omega_alpha_vec.push_back(totalfit->GetParameter(8));
-                        omega_alpha_err_vec.push_back(totalfit->GetParError(8));
-                        omega_n_vec.push_back(totalfit->GetParameter(9));
-                        omega_n_err_vec.push_back(totalfit->GetParError(9));
+                            // Omega parameters (Pars 5-9)
+                            omega_mean_vec.push_back(totalfit->GetParameter(6));
+                            omega_mean_err_vec.push_back(totalfit->GetParError(6));
+                            omega_sigma_vec.push_back(totalfit->GetParameter(7));
+                            omega_sigma_err_vec.push_back(totalfit->GetParError(7));
+                            omega_alpha_vec.push_back(totalfit->GetParameter(8));
+                            omega_alpha_err_vec.push_back(totalfit->GetParError(8));
+                            omega_n_vec.push_back(totalfit->GetParameter(9));
+                            omega_n_err_vec.push_back(totalfit->GetParError(9));
 
-                        // Phi parameters (Pars 10-14)
-                        phi_mean_vec.push_back(totalfit->GetParameter(11));
-                        phi_mean_err_vec.push_back(totalfit->GetParError(11));
-                        phi_sigma_vec.push_back(totalfit->GetParameter(12));
-                        phi_sigma_err_vec.push_back(totalfit->GetParError(12));
-                        phi_alpha_vec.push_back(totalfit->GetParameter(13));
-                        phi_alpha_err_vec.push_back(totalfit->GetParError(13));
-                        phi_n_vec.push_back(totalfit->GetParameter(14));
-                        phi_n_err_vec.push_back(totalfit->GetParError(14));
+                            // Phi parameters (Pars 10-14)
+                            phi_mean_vec.push_back(totalfit->GetParameter(11));
+                            phi_mean_err_vec.push_back(totalfit->GetParError(11));
+                            phi_sigma_vec.push_back(totalfit->GetParameter(12));
+                            phi_sigma_err_vec.push_back(totalfit->GetParError(12));
+                            phi_alpha_vec.push_back(totalfit->GetParameter(13));
+                            phi_alpha_err_vec.push_back(totalfit->GetParError(13));
+                            phi_n_vec.push_back(totalfit->GetParameter(14));
+                            phi_n_err_vec.push_back(totalfit->GetParError(14));
+                        }
 
                         // --- Add Canvas for Fit Visualization ---
                         outPtDir->cd();
+                        // Save calculated Yields
+                        (new TParameter<double>("omega_yield", y.Omega_yield))->Write();
+                        (new TParameter<double>("omega_yield_err", y.Omega_yield_err))->Write();
+                        (new TParameter<double>("phi_yield", y.Phi_yield))->Write();
+                        (new TParameter<double>("phi_yield_err", y.Phi_yield_err))->Write();
+                        p_range->Write("ptrange");
+                        p_min->Write("ptmin");
+                        p_max->Write("ptmax");
+
                         TCanvas *cFit = new TCanvas("cFitResult", Form("Fit Result %s", ptDir->GetName()), 800, 600);
                         gStyle->SetOptFit(1111);
                         LikeSignSig->SetMarkerStyle(20); LikeSignSig->SetMarkerSize(0.8);

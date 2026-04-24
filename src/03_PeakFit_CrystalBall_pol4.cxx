@@ -139,31 +139,35 @@ void PeakFit_CrystalBall_pol4(TFile *input_Sig){
                     TParameter<double> *pMax = (TParameter<double>*)ptDir->Get("ptmax");
 
                     if (totalfit && pMin && pMax) {
-                        if (pMax->GetVal() - pMin->GetVal() > 9.0) continue; // 全領域ビンを除外
-                        double pt_center = (pMin->GetVal() + pMax->GetVal()) / 2.0;
-                        double pt_halfwidth = (pMax->GetVal() - pMin->GetVal()) / 2.0;
-                        v_pt.push_back(pt_center);
-                        v_pt_err.push_back(pt_halfwidth);
-
+                        // Extract fit results for all bins
                         // Omega (Indices 5-9 in totalfit: pol4(0-4) + CB_om(5-9) + CB_ph(10-14))
-                        v_om_mean.push_back(totalfit->GetParameter(6));
-                        v_om_mean_err.push_back(totalfit->GetParError(6));
-                        v_om_sigma.push_back(totalfit->GetParameter(7));
-                        v_om_sigma_err.push_back(totalfit->GetParError(7));
-                        v_om_alpha.push_back(totalfit->GetParameter(8));
-                        v_om_alpha_err.push_back(totalfit->GetParError(8));
-                        v_om_n.push_back(totalfit->GetParameter(9));
-                        v_om_n_err.push_back(totalfit->GetParError(9));
+                        
+                        // Only add to summary vectors if it's not a total pt bin (e.g., range < 9.0)
+                        if (pMax->GetVal() - pMin->GetVal() < 9.0) {
+                            double pt_center = (pMin->GetVal() + pMax->GetVal()) / 2.0;
+                            double pt_halfwidth = (pMax->GetVal() - pMin->GetVal()) / 2.0;
+                            v_pt.push_back(pt_center);
+                            v_pt_err.push_back(pt_halfwidth);
 
-                        // Phi (Indices 11-15 in totalfit)
-                        v_ph_mean.push_back(totalfit->GetParameter(11));
-                        v_ph_mean_err.push_back(totalfit->GetParError(11));
-                        v_ph_sigma.push_back(totalfit->GetParameter(12));
-                        v_ph_sigma_err.push_back(totalfit->GetParError(12));
-                        v_ph_alpha.push_back(totalfit->GetParameter(13));
-                        v_ph_alpha_err.push_back(totalfit->GetParError(13));
-                        v_ph_n.push_back(totalfit->GetParameter(14));
-                        v_ph_n_err.push_back(totalfit->GetParError(14));
+                            v_om_mean.push_back(totalfit->GetParameter(6));
+                            v_om_mean_err.push_back(totalfit->GetParError(6));
+                            v_om_sigma.push_back(totalfit->GetParameter(7));
+                            v_om_sigma_err.push_back(totalfit->GetParError(7));
+                            v_om_alpha.push_back(totalfit->GetParameter(8));
+                            v_om_alpha_err.push_back(totalfit->GetParError(8));
+                            v_om_n.push_back(totalfit->GetParameter(9));
+                            v_om_n_err.push_back(totalfit->GetParError(9));
+
+                            // Phi (Indices 11-15 in totalfit)
+                            v_ph_mean.push_back(totalfit->GetParameter(11));
+                            v_ph_mean_err.push_back(totalfit->GetParError(11));
+                            v_ph_sigma.push_back(totalfit->GetParameter(12));
+                            v_ph_sigma_err.push_back(totalfit->GetParError(12));
+                            v_ph_alpha.push_back(totalfit->GetParameter(13));
+                            v_ph_alpha_err.push_back(totalfit->GetParError(13));
+                            v_ph_n.push_back(totalfit->GetParameter(14));
+                            v_ph_n_err.push_back(totalfit->GetParError(14));
+                        }
                     }
 
                     TObject *p;

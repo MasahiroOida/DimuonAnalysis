@@ -83,7 +83,6 @@ void YieldCalcuration_CrystalBall(TFile *input_FitResult) {
             while ((keyPt = (TKey *)nextPt())) {
                 if (TString(keyPt->GetClassName()) == "TDirectoryFile") {
                     TDirectory *ptDir = (TDirectory *)keyPt->ReadObj();
-                    if (TString(ptDir->GetName()) == "Pt_0to30") continue;
                     TDirectory *outPtDir = outTopDir->mkdir(ptDir->GetName());
 
                     TH1F *LikeSignSig = (TH1F *)ptDir->Get("LikeSignSig_fit");
@@ -93,17 +92,30 @@ void YieldCalcuration_CrystalBall(TFile *input_FitResult) {
                     TParameter<double>* p_min = (TParameter<double>*)ptDir->Get("ptmin");
                     TParameter<double>* p_max = (TParameter<double>*)ptDir->Get("ptmax");
 
-                    if(LikeSignSig && totalfit && fitRes && p_range) {
+                    if(LikeSignSig && totalfit && fitRes && p_range && p_min && p_max) {
                         Yield y = yieldCal_CrystalBall(LikeSignSig, totalfit, fitRes, p_range->GetVal());
-                        pt_vec.push_back(0.5 * (p_max->GetVal() + p_min->GetVal()));
-                        pt_err_vec.push_back(0.5 * p_range->GetVal());
-                        omega_yield_vec.push_back(y.Omega_yield);
-                        omega_yield_err_vec.push_back(y.Omega_yield_err);
-                        phi_yield_vec.push_back(y.Phi_yield);
-                        phi_yield_err_vec.push_back(y.Phi_yield_err);
+                        
+                        // Only add to spectrum vectors if it's not a total pt bin (e.g., range < 9.0)
+                        if (p_range->GetVal() < 9.0) {
+                            pt_vec.push_back(0.5 * (p_max->GetVal() + p_min->GetVal()));
+                            pt_err_vec.push_back(0.5 * p_range->GetVal());
+                            omega_yield_vec.push_back(y.Omega_yield);
+                            omega_yield_err_vec.push_back(y.Omega_yield_err);
+                            phi_yield_vec.push_back(y.Phi_yield);
+                            phi_yield_err_vec.push_back(y.Phi_yield_err);
+                        }
 
                         // --- Add Canvas for Fit Visualization ---
                         outPtDir->cd();
+                        // Save calculated Yields
+                        (new TParameter<double>("omega_yield", y.Omega_yield))->Write();
+                        (new TParameter<double>("omega_yield_err", y.Omega_yield_err))->Write();
+                        (new TParameter<double>("phi_yield", y.Phi_yield))->Write();
+                        (new TParameter<double>("phi_yield_err", y.Phi_yield_err))->Write();
+                        p_range->Write("ptrange");
+                        p_min->Write("ptmin");
+                        p_max->Write("ptmax");
+
                         TCanvas *cFit = new TCanvas("cFitResult", Form("Fit Result %s", ptDir->GetName()), 800, 600);
                         gStyle->SetOptFit(1111);
                         LikeSignSig->SetMarkerStyle(20); LikeSignSig->SetMarkerSize(0.8);

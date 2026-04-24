@@ -296,11 +296,23 @@ void Making1DfromHnSparse(TFile *inputAnalysisResult_EM){
 void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, THnSparse *hn) {
     if (!hn) return;
 
-    // カスタム pT ビン: 0~0.5, 0.5~1.0, 1.0~2.0, 2.0~3.0, 3.0~6.0, 6.0~10.0
-    std::vector<std::pair<double, double>> pt_bins = {
-        {0.0, 0.5}, {0.5, 1.0}, {1.0, 2.0}, {2.0, 3.0}, {3.0, 6.0}, {6.0, 10.0}
-    };
+    // pT bins: 0.5 GeV steps from 0.0 to 10.0
+    std::vector<std::pair<double, double>> pt_bins;
+    for (double pt = 0.0; pt < 10.0; pt += 0.5) {
+        pt_bins.push_back({pt, pt + 0.5});
+    }
 
+    // Y bins
+    std::vector<std::pair<double, double>> y_bins;
+    for (double y = -4.0; y < -2.5; y += 0.25) {
+        y_bins.push_back({y, y + 0.25});
+    }
+
+    int ptDim = 1;
+    int massDim = 0;
+    int yDim = 2;
+
+    // Process Pt bins
     for (const auto& bin : pt_bins) {
         double pt_min = bin.first;
         double pt_max = bin.second;
@@ -308,46 +320,56 @@ void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, T
         TDirectory *newDir = outfile_projection->mkdir(dirName);
         newDir->cd();
 
-        // pT 軸 (dim 1) で範囲を選択
-        int ptDim = 1;
-        int massDim = 0;
-        int yDim = 2;
-
         TAxis *ptAxis = hn->GetAxis(ptDim);
         int binMin = ptAxis->FindBin(pt_min + 1e-6);
         int binMax = ptAxis->FindBin(pt_max - 1e-6);
         ptAxis->SetRange(binMin, binMax);
 
-        // Mass 射影
         TH1D *hMass = (TH1D*)hn->Projection(massDim);
         hMass->SetName("SEPM");
         hMass->SetTitle(Form("Mass distribution (%.1f < p_{T} < %.1f)", pt_min, pt_max));
         hMass->Write();
         delete hMass;
 
-        // pT 射影
         TH1D *hPt = (TH1D*)hn->Projection(ptDim);
         hPt->SetName("Pt");
-        hPt->SetTitle(Form("p_{T} distribution (%.1f < p_{T} < %.1f)", pt_min, pt_max));
         hPt->Write();
         delete hPt;
 
-        // パラメータを保存
         (new TParameter<double>("ptmin", pt_min))->Write();
         (new TParameter<double>("ptmax", pt_max))->Write();
-        (new TParameter<double>("ptrange", pt_max - pt_min))->Write();
-
-        // y 射影 (次元が存在する場合)
-        if (hn->GetNdimensions() > yDim) {
-            TH1D *hY = (TH1D*)hn->Projection(yDim);
-            hY->SetName("Y");
-            hY->SetTitle(Form("y distribution (%.1f < p_{T} < %.1f)", pt_min, pt_max));
-            hY->Write();
-            delete hY;
-        }
-
-        // 範囲をリセット
+        
         ptAxis->SetRange(0, 0);
+    }
+
+    // Process Y bins
+    for (const auto& bin : y_bins) {
+        double y_min = bin.first;
+        double y_max = bin.second;
+        TString dirName = Form("Y_%.2fto%.2f", y_min, y_max);
+        TDirectory *newDir = outfile_projection->mkdir(dirName);
+        newDir->cd();
+
+        TAxis *yAxis = hn->GetAxis(yDim);
+        int binMin = yAxis->FindBin(y_min + 1e-6);
+        int binMax = yAxis->FindBin(y_max - 1e-6);
+        yAxis->SetRange(binMin, binMax);
+
+        TH1D *hMass = (TH1D*)hn->Projection(massDim);
+        hMass->SetName("SEPM");
+        hMass->SetTitle(Form("Mass distribution (%.2f < y < %.2f)", y_min, y_max));
+        hMass->Write();
+        delete hMass;
+
+        TH1D *hY = (TH1D*)hn->Projection(yDim);
+        hY->SetName("Y");
+        hY->Write();
+        delete hY;
+
+        (new TParameter<double>("ymin", y_min))->Write();
+        (new TParameter<double>("ymax", y_max))->Write();
+        
+        yAxis->SetRange(0, 0);
     }
 }
 
@@ -363,13 +385,13 @@ void Making1DfromHnSparse_mc(TFile *inputAnalysisResult_EM_mc){
             TString path;
             TString outName;
             if (cat == "All") {
-                path = Form("dimuon-mc/Generated/VM/All/%s", part.Data());
+                path = Form("dimuon-mc_Accepted/Generated/VM/All/%s", part.Data());
                 outName = Form("Generated_All/%s", part.Data());
             } else if (cat == "Acc") {
-                path = Form("dimuon-mc/Generated/VM/Acc/%s", part.Data());
+                path = Form("dimuon-mc_Accepted/Generated/VM/Acc/%s", part.Data());
                 outName = Form("Generated_Acc/%s", part.Data());
             } else if (cat == "Reco") {
-                path = Form("dimuon-mc/Pair/sm/%s2ll", part.Data());
+                path = Form("dimuon-mc_Accepted/Pair/sm/%s2ll", part.Data());
                 outName = Form("Reconstructed/%s", part.Data());
             }
 

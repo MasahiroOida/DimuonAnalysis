@@ -147,28 +147,10 @@ void YieldCalcuration_Gauss(TFile *input_FitResult){
         }
     }
     
-    int dir_size = directoryNames.size();
-    TVectorF pt_vec(dir_size);
-    TVectorF pt_err_vec(dir_size);
-    TVectorF omega_yield_vec(dir_size);
-    TVectorF phi_yield_vec(dir_size);
-    TVectorF omega_yield_err_vec(dir_size);
-    TVectorF phi_yield_err_vec(dir_size);    
+    std::vector<double> v_pt, v_pt_err, v_omega_yield, v_omega_yield_err, v_phi_yield, v_phi_yield_err;
 
-    int loop_i = 0;
     for (const auto &name : directoryNames)
     { 
-        if(name == "Pt_1to30"){
-            pt_vec[loop_i] = -999; // "NaN"を代入
-            pt_err_vec[loop_i] = -999;
-            omega_yield_vec[loop_i] = -999;
-            phi_yield_vec[loop_i] = -999;
-            omega_yield_err_vec[loop_i] = -999;
-            phi_yield_err_vec[loop_i] = -999;
-            loop_i++;
-            continue;
-        }
-
         TDirectoryFile *dir = (TDirectoryFile *)input_FitResult->Get(name.c_str());
         TDirectory *newDir = outfile_Yield->mkdir(name.c_str());
         outfile_Yield->cd();
@@ -177,58 +159,63 @@ void YieldCalcuration_Gauss(TFile *input_FitResult){
 
         TF1 *totalfit = (TF1 *)dir->Get("totalfit");
         TParameter<double>* param_ptrange = (TParameter<double>*)dir->Get("ptrange");
-        param_ptrange->Write("ptrange");
         TParameter<double>* param_ptmin = (TParameter<double>*)dir->Get("ptmin");
-        param_ptmin -> Write("ptmin");
         TParameter<double>* param_ptmax = (TParameter<double>*)dir->Get("ptmax");
-        param_ptmax -> Write("ptmax");
-        Yield yield = yieldCal_Gauss(LikeSignSig, totalfit, param_ptrange->GetVal());//ここで Segmentation violation
-        // GetVal()でポインタの先のオブジェクトから値を取得する
-        pt_vec[loop_i] = 0.5 * (param_ptmax->GetVal() + param_ptmin->GetVal());
-        pt_err_vec[loop_i] = 0.5 * param_ptrange->GetVal();
-        omega_yield_vec[loop_i] = yield.Omega_yield;
-        omega_yield_err_vec[loop_i] = yield.Omega_yield_err;
-        phi_yield_vec[loop_i] = yield.Phi_yield;
-        phi_yield_err_vec[loop_i] = yield.Phi_yield_err;
-        //std::cout << "pt" << pt_vec[loop_i] << std::endl;
-        //std::cout << "omega yield" << omega_yield_vec[loop_i] << std::endl;
-        //std::cout << "phi yield" << phi_yield_vec[loop_i] << std::endl;
-        loop_i++;
+
+        if(LikeSignSig && totalfit && param_ptrange && param_ptmin && param_ptmax) {
+            Yield yield = yieldCal_Gauss(LikeSignSig, totalfit, param_ptrange->GetVal());
+            
+            // Save results to directory
+            (new TParameter<double>("omega_yield", yield.Omega_yield))->Write();
+            (new TParameter<double>("omega_yield_err", yield.Omega_yield_err))->Write();
+            (new TParameter<double>("phi_yield", yield.Phi_yield))->Write();
+            (new TParameter<double>("phi_yield_err", yield.Phi_yield_err))->Write();
+            param_ptrange->Write("ptrange");
+            param_ptmin -> Write("ptmin");
+            param_ptmax -> Write("ptmax");
+
+            // Only add to spectrum if not total pt bin
+            if (param_ptrange->GetVal() < 9.0) {
+                v_pt.push_back(0.5 * (param_ptmax->GetVal() + param_ptmin->GetVal()));
+                v_pt_err.push_back(0.5 * param_ptrange->GetVal());
+                v_omega_yield.push_back(yield.Omega_yield);
+                v_omega_yield_err.push_back(yield.Omega_yield_err);
+                v_phi_yield.push_back(yield.Phi_yield);
+                v_phi_yield_err.push_back(yield.Phi_yield_err);
+            }
+        }
     }
     outfile_Yield->cd();
-    TGraphErrors *omega_yield_ptspectrum = new TGraphErrors(pt_vec, omega_yield_vec, pt_err_vec, omega_yield_err_vec);
-    TGraphErrors *phi_yield_ptspectrum = new TGraphErrors(pt_vec, phi_yield_vec, pt_err_vec, phi_yield_err_vec);
+    if (!v_pt.empty()) {
+        TGraphErrors *omega_yield_ptspectrum = new TGraphErrors(v_pt.size(), &v_pt[0], &v_omega_yield[0], &v_pt_err[0], &v_omega_yield_err[0]);
+        TGraphErrors *phi_yield_ptspectrum = new TGraphErrors(v_pt.size(), &v_pt[0], &v_phi_yield[0], &v_pt_err[0], &v_phi_yield_err[0]);
 
-    TCanvas *canvas = new TCanvas("canvas", "canvas", 800, 600);
-    //canvas->SetFillColor(kWhite); // キャンバスの背景色を変更
-    //canvas->SetGrid();            // グリッドを表示
-    omega_yield_ptspectrum->Draw("P");
-    omega_yield_ptspectrum->GetXaxis()->SetTitle("pt (GeV/#it{c})");
-    omega_yield_ptspectrum->GetYaxis()->SetTitle("N");
-    omega_yield_ptspectrum->SetMarkerSize(0.7);
-    omega_yield_ptspectrum->SetMarkerStyle(20);
-    omega_yield_ptspectrum->SetTitle("#omega yield");
-    omega_yield_ptspectrum->GetXaxis()->SetRangeUser(0, 10);
-    omega_yield_ptspectrum->GetYaxis()->SetRangeUser(1, 100000); // 範囲を2から8に
-       gPad->Update();
-    canvas -> Write("omega_yield_ptspectrum_canvas");
-    omega_yield_ptspectrum->Write("omega_yield_ptspectrum");
+        TCanvas *canvas = new TCanvas("canvas", "canvas", 800, 600);
+        omega_yield_ptspectrum->Draw("P");
+        omega_yield_ptspectrum->GetXaxis()->SetTitle("pt (GeV/#it{c})");
+        omega_yield_ptspectrum->GetYaxis()->SetTitle("N");
+        omega_yield_ptspectrum->SetMarkerSize(0.7);
+        omega_yield_ptspectrum->SetMarkerStyle(20);
+        omega_yield_ptspectrum->SetTitle("#omega yield");
+        omega_yield_ptspectrum->GetXaxis()->SetRangeUser(0, 10);
+        omega_yield_ptspectrum->GetYaxis()->SetRangeUser(1, 100000);
+        gPad->Update();
+        canvas -> Write("omega_yield_ptspectrum_canvas");
+        omega_yield_ptspectrum->Write("omega_yield_ptspectrum");
 
-
-    TCanvas *canvas2 = new TCanvas("canvas2", "canvas2", 800, 600);
-    //canvas2->SetFillColor(kWhite); // キャンバスの背景色を変更
-    //canvas2->SetGrid();            // グリッドを表示
-    phi_yield_ptspectrum->Draw("P");
-    phi_yield_ptspectrum->GetXaxis()->SetTitle("pt (GeV/#it{c})");
-    phi_yield_ptspectrum->GetYaxis()->SetTitle("N");
-    phi_yield_ptspectrum->SetTitle("#phi yield");
-    phi_yield_ptspectrum->SetMarkerSize(0.7);
-    phi_yield_ptspectrum->SetMarkerStyle(20);
-    phi_yield_ptspectrum->GetXaxis()->SetRangeUser(0, 10);
-    phi_yield_ptspectrum->GetYaxis()->SetRangeUser(1, 100000);
-    gPad->Update();
-    canvas2 -> Write("phi_yield_ptspectrum_canvas");
-    phi_yield_ptspectrum->Write("phi_yield_ptspectrum");
+        TCanvas *canvas2 = new TCanvas("canvas2", "canvas2", 800, 600);
+        phi_yield_ptspectrum->Draw("P");
+        phi_yield_ptspectrum->GetXaxis()->SetTitle("pt (GeV/#it{c})");
+        phi_yield_ptspectrum->GetYaxis()->SetTitle("N");
+        phi_yield_ptspectrum->SetTitle("#phi yield");
+        phi_yield_ptspectrum->SetMarkerSize(0.7);
+        phi_yield_ptspectrum->SetMarkerStyle(20);
+        phi_yield_ptspectrum->GetXaxis()->SetRangeUser(0, 10);
+        phi_yield_ptspectrum->GetYaxis()->SetRangeUser(1, 100000);
+        gPad->Update();
+        canvas2 -> Write("phi_yield_ptspectrum_canvas");
+        phi_yield_ptspectrum->Write("phi_yield_ptspectrum");
+    }
     outfile_Yield->Close();
     std::cout << "finish calculating yield" << std::endl;
     delete outfile_Yield;

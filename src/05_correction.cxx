@@ -65,22 +65,90 @@ void correction(TFile *input_Lumi, TFile *input_Yield, TFile *input_efficiency) 
 
     // --- 4. Cross Section Calculation (Luminosity Based) ---
     float BR_omega = 7.4e-5, BR_phi = 2.86e-4;
-    // float BR_omega = 0.5, BR_phi = 0.5;
-    TH1D *hColl = (TH1D *)input_Lumi->Get("dimuon/Event/norm/hCollisionCounter");
-    if (!hColl) { 
-        std::cerr << "Error: hCollisionCounter not found." << std::endl; 
+    
+    // Integrated Luminosity calculation using TVX counter
+    TH1D *hTVX = (TH1D *)input_Lumi->Get("dimuon/BC/hTVXCounter");
+    if (!hTVX) { 
+        std::cerr << "Error: hTVXCounter not found in dimuon/BC/." << std::endl; 
         return; 
     }
+
+    // --- TVX Efficiency Correction Calculation ---
+    TFile *file_vtx_eff = TFile::Open("vertexZ_efficiency.root");
+    if (!file_vtx_eff || file_vtx_eff->IsZombie()) {
+        std::cerr << "Error: Could not open vertexZ_efficiency.root" << std::endl;
+        return;
+    }
+    TH1D *hVtxZEff = (TH1D*)file_vtx_eff->Get("hVertexZEfficiency");
+    if (hVtxZEff) hVtxZEff->SetDirectory(0);
+    file_vtx_eff->Close();
+
+    TH1D *hZvtx = (TH1D*)input_Lumi->Get("dimuon/Event/norm/hZvtx");
+
+    if (!hVtxZEff || !hZvtx) {
+        std::cerr << "Error: hVertexZEfficiency or hZvtx not found." << std::endl;
+        return;
+    }
+
+    double sum_num = 0;
+    double sum_den = 0;
+    TH1D *hZvtx_corrected = (TH1D*)hZvtx->Clone("hZvtx_corrected");
+    hZvtx_corrected->Reset();
+    hZvtx_corrected->SetTitle("VtxZ distribution before and after efficiency correction;VtxZ (cm);Counts");
+
+    for (int i = 1; i <= hZvtx->GetNbinsX(); ++i) {
+        double z = hZvtx->GetXaxis()->GetBinCenter(i);
+        double val_vtx = hZvtx->GetBinContent(i);
+        double err_vtx = hZvtx->GetBinError(i);
+        double eff_z = hVtxZEff->GetBinContent(hVtxZEff->FindBin(z));
+        
+        if (eff_z > 1e-6) { // Avoid division by zero
+            double term = val_vtx / eff_z;
+            double term_err = err_vtx / eff_z;
+            sum_den += term;
+            hZvtx_corrected->SetBinContent(i, term);
+            hZvtx_corrected->SetBinError(i, term_err);
+            if (z >= -10.0 && z <= 10.0) {
+                sum_num += term;
+            }
+        }
+    }
+    double epsilon_tvx = (sum_den > 0) ? (sum_num / sum_den) : 0;
+    std::cout << "TVX Efficiency (epsilon_tvx): " << epsilon_tvx << std::endl;
+
+    // --- Plot VtxZ Comparison ---
+    TCanvas *c_VtxZ_Correction = new TCanvas("c_VtxZ_Correction", "VtxZ Efficiency Correction Comparison", 800, 600);
+    hZvtx_corrected->SetLineColor(kRed);
+    hZvtx_corrected->SetMarkerColor(kRed);
+    hZvtx->SetLineColor(kBlack);
+    hZvtx->SetMarkerColor(kBlack);
+
+    hZvtx_corrected->Draw("PE");
+    hZvtx->Draw("PE SAME");
+
+    TLegend *legVtx = new TLegend(0.6, 0.7, 0.85, 0.85);
+    legVtx->AddEntry(hZvtx, "Original VtxZ", "lp");
+    legVtx->AddEntry(hZvtx_corrected, "Corrected VtxZ (VtxZ/#epsilon(z))", "lp");
+    legVtx->Draw();
     
-    // Integrated Luminosity calculation
-    // 0.0594e6 is assumed to be the pp inelastic cross section in microbarn (59.4 mb)
-    double nEvents = hColl->GetBinContent(1);
-    double sigma_inel_mb = 59.4; 
-    double L_int_mb_inv = nEvents / sigma_inel_mb; 
+    output_file->cd();
+    c_VtxZ_Correction->Write();
+    hZvtx_corrected->Write();
+
+    TH1D *hColl = (TH1D *)input_Lumi->Get("dimuon/Event/norm/hCollisionCounter");
     
-    std::cout << "Luminosity normalization:" << std::endl;
-    std::cout << " - Events: " << nEvents << std::endl;
-    std::cout << " - Sigma_inel: " << sigma_inel_mb << " mb" << std::endl;
+    // TVX events for normalization are typically in specific bins. 
+    // Using bin at 5.0 to represent the 4.5 to 5.5 range.
+    double nEvents = hTVX->GetBinContent(hTVX->FindBin(5.0));
+    //double nEvents = hColl->GetBinContent(hColl->FindBin(21));
+    double sigma_tvx_mb = 54.0; // TVX cross section for pp 13.6 TeV [mb]
+    double L_int_mb_inv = (nEvents * epsilon_tvx) / sigma_tvx_mb; 
+    
+    std::cout << "Luminosity normalization (TVX based):" << std::endl;
+    std::cout << " - TVX Events (total): " << nEvents << std::endl;
+    std::cout << " - TVX Efficiency (epsilon_tvx): " << epsilon_tvx << std::endl;
+    std::cout << " - TVX Events (corrected): " << nEvents * epsilon_tvx << std::endl;
+    std::cout << " - Sigma_TVX: " << sigma_tvx_mb << " mb" << std::endl;
     std::cout << " - L_int: " << L_int_mb_inv << " mb^-1" << std::endl;
 
     std::vector<float> o_xs, o_xs_err, p_xs, p_xs_err;

@@ -76,6 +76,12 @@ void Check_mc_mass() {
                     if (TString(ptKey->GetClassName()) != "TDirectoryFile") continue;
                     
                     TString ptDirName = ptKey->GetName();
+
+                    // Filter based on distName to avoid mixing Pt and Y bins in the same canvas
+                    if (distName == "SEPM" && ptDirName.BeginsWith("Y_")) continue;
+                    if (distName == "Pt" && ptDirName.BeginsWith("Y_")) continue;
+                    if (distName == "Y" && ptDirName.BeginsWith("Pt_")) continue;
+
                     TDirectory *ptDir = (TDirectory*)partDir->Get(ptDirName);
                     TH1D *h = (TH1D*)ptDir->Get(distName);
 
