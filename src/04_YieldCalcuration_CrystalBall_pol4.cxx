@@ -24,18 +24,9 @@ struct Yield {
     double Phi_yield_err;
 };
 
-Yield yieldCal_CrystalBall_pol4(TH1 *Sig, TF1 *Totalfun, TFitResult *fitRes, double ptrange) {
-    if (!Sig || !Totalfun || !fitRes) return {0,0,0,0};
-    double binWidth = Sig->GetBinWidth(1);
+Yield yieldCal_CrystalBall_pol4(TH1 *Sig, TF1 *Totalfun) {
+    if (!Sig || !Totalfun) return {0,0,0,0};
     
-    // Omega (Parameters 5-9 in Totalfun for pol4 background case)
-    TF1 *omega_cb = new TF1("omega_cb", "crystalball", 0.6, 1.3);
-    for(int i=0; i<5; ++i) omega_cb->SetParameter(i, Totalfun->GetParameter(5+i));
-    
-    // Phi (Parameters 10-14 in Totalfun for pol4 background case)
-    TF1 *phi_cb = new TF1("phi_cb", "crystalball", 0.6, 1.3);
-    for(int i=0; i<5; ++i) phi_cb->SetParameter(i, Totalfun->GetParameter(10+i));
-
     double Omega_mass = Totalfun->GetParameter(6);
     double Omega_width = Totalfun->GetParameter(7);
     double Phi_mass = Totalfun->GetParameter(11);
@@ -46,25 +37,38 @@ Yield yieldCal_CrystalBall_pol4(TH1 *Sig, TF1 *Totalfun, TFitResult *fitRes, dou
     double Phi_Down = Phi_mass - 3 * Phi_width;
     double Phi_UP = Phi_mass + 3 * Phi_width;
 
-    double Y_omega = omega_cb->Integral(Omega_Down, Omega_UP) / binWidth;
-    double Y_phi = phi_cb->Integral(Phi_Down, Phi_UP) / binWidth;
-    
-    // Correct Error Propagation using Covariance Matrix
-    TMatrixDSym cov = fitRes->GetCovarianceMatrix();
-    TMatrixDSym subCovOmega(5);
-    TMatrixDSym subCovPhi(5);
-    for(int i=0; i<5; ++i) {
-        for(int j=0; j<5; ++j) {
-            subCovOmega(i, j) = cov(i+5, j+5);
-            subCovPhi(i, j) = cov(i+10, j+10);
-        }
-    }
-    
-    double Y_omega_err = omega_cb->IntegralError(Omega_Down, Omega_UP, omega_cb->GetParameters(), subCovOmega.GetMatrixArray()) / binWidth;
-    double Y_phi_err = phi_cb->IntegralError(Phi_Down, Phi_UP, phi_cb->GetParameters(), subCovPhi.GetMatrixArray()) / binWidth;
+    TF1 *fBG = new TF1("fBG", "pol4", 0.6, 1.4);
+    for(int i=0; i<5; ++i) fBG->SetParameter(i, Totalfun->GetParameter(i));
 
-    delete omega_cb; delete phi_cb;
-    return {Y_omega / ptrange, Y_omega_err / ptrange, Y_phi / ptrange, Y_phi_err / ptrange};
+    double Omega_yield = 0;
+    double Omega_err2 = 0;
+    for (int i = Sig->FindBin(Omega_Down); i <= Sig->FindBin(Omega_UP); ++i) {
+        double bin_center = Sig->GetBinCenter(i);
+        double bin_content = Sig->GetBinContent(i);
+        double bin_err = Sig->GetBinError(i);
+        double bg_val = fBG->Eval(bin_center);
+        
+        Omega_yield += (bin_content - bg_val);
+        Omega_err2 += bin_err * bin_err;
+    }
+    double Omega_yield_err = TMath::Sqrt(Omega_err2);
+
+    double Phi_yield = 0;
+    double Phi_err2 = 0;
+    for (int i = Sig->FindBin(Phi_Down); i <= Sig->FindBin(Phi_UP); ++i) {
+        double bin_center = Sig->GetBinCenter(i);
+        double bin_content = Sig->GetBinContent(i);
+        double bin_err = Sig->GetBinError(i);
+        double bg_val = fBG->Eval(bin_center);
+        
+        Phi_yield += (bin_content - bg_val);
+        Phi_err2 += bin_err * bin_err;
+    }
+    double Phi_yield_err = TMath::Sqrt(Phi_err2);
+
+    delete fBG;
+
+    return {Omega_yield, Omega_yield_err, Phi_yield, Phi_yield_err};
 }
 
 void YieldCalcuration_CrystalBall_pol4(TFile *input_FitResult) {
@@ -95,8 +99,8 @@ void YieldCalcuration_CrystalBall_pol4(TFile *input_FitResult) {
                     TParameter<double>* p_min = (TParameter<double>*)ptDir->Get("ptmin");
                     TParameter<double>* p_max = (TParameter<double>*)ptDir->Get("ptmax");
 
-                    if(LikeSignSig && totalfit && fitRes && p_range && p_min && p_max) {
-                        Yield y = yieldCal_CrystalBall_pol4(LikeSignSig, totalfit, fitRes, p_range->GetVal());
+                    if(LikeSignSig && totalfit && p_range && p_min && p_max) {
+                        Yield y = yieldCal_CrystalBall_pol4(LikeSignSig, totalfit);
                         
                         // Only add to spectrum vectors if it's not a total pt bin (e.g., range < 9.0)
                         if (p_range->GetVal() < 9.0) {

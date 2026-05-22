@@ -15,7 +15,7 @@
 #include <TStopwatch.h>
 #include "myAnalysis.h"
 
-void dimuon_macro_forEM()
+void dimuon_macro_forEM_production_gauss_exp()
 {
     TH1::SetDefaultSumw2();
     // input Hyperloop result
@@ -31,11 +31,11 @@ void dimuon_macro_forEM()
     LikeSignMethod(outfile_Made1D);
     TFile *outfile_LikeSignMethod = new TFile("LikeSignMethod.root");
 
-    PeakFit_CrystalBall_pol4(outfile_LikeSignMethod);
-    TFile *outfile_PeakFit = new TFile("PeakFit_CrystalBall_pol4_Results.root");
+    PeakFit_Gauss(outfile_LikeSignMethod);
+    TFile *outfile_PeakFit = new TFile("PeakFit_Gauss_Results.root");
 
-    YieldCalcuration_CrystalBall_pol4(outfile_PeakFit);
-    TFile *outfile_Yield = new TFile("Yield_Results_CrystalBall_pol4.root");
+    YieldCalcuration_Gauss(outfile_PeakFit);
+    TFile *outfile_Yield = new TFile("Yield_Results.root");
 
     TFile *inputEfficiency = new TFile("AcceptanceEfficiency_Both.root");
     if (inputEfficiency->IsZombie()) {
@@ -43,12 +43,11 @@ void dimuon_macro_forEM()
         return;
     }
 
-    correction(inputResults_SE, outfile_Yield, inputEfficiency, "CB");
-    }
-
+    correction(inputResults_SE, outfile_Yield, inputEfficiency, "Gauss");
+}
 
 int main()
 {
-    dimuon_macro_forEM();
+    dimuon_macro_forEM_production_gauss_exp();
     return 0;
 }

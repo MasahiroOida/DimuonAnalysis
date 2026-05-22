@@ -157,6 +157,7 @@ void ProcessPtDirectory(TDirectory *inputDir, TDirectory *outputDir) {
     if((p = inputDir->Get("ptrange"))) p->Write("ptrange");
     if((p = inputDir->Get("ptmin"))) p->Write("ptmin");
     if((p = inputDir->Get("ptmax"))) p->Write("ptmax");
+    if((p = inputDir->Get("nEvents"))) p->Write("nEvents");
     TH1F *MEPM = (TH1F *)inputDir->Get("MEPM");
     TH1F *MEPP = (TH1F *)inputDir->Get("MEPP");
     TH1F *MEMM = (TH1F *)inputDir->Get("MEMM");

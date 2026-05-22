@@ -30,7 +30,7 @@ Double_t myFreeFunctionPol4(Double_t *x, Double_t *par)
     return 0;
 };
 
-void Peakfit(TH1 *Sig)
+void Peakfit(TH1 *Sig, double nEvents = -1)
 {
     if (Sig == nullptr) return;
     TH1::SetDefaultSumw2();
@@ -80,31 +80,110 @@ void Peakfit(TH1 *Sig)
     // Omega (CB): [5, 6, 7, 8, 9]
     // Phi (CB): [10, 11, 12, 13, 14]
     TF1 *totalfit = new TF1("totalfit", "pol4(0) + crystalball(5) + crystalball(10)", 0.6, 1.2);
+
     for(int i=0; i<5; ++i) totalfit->SetParameter(i, fitFunction->GetParameter(i));
     for(int i=0; i<5; ++i) {
         totalfit->SetParameter(5+i, omegafitfunc->GetParameter(i));
         totalfit->SetParameter(10+i, phifitfunc->GetParameter(i));
     };
 
-    // Apply limits for totalfit
+    auto clamp = [](double val, double low, double high) {
+        if (val <= low) return low + 0.0001;
+        if (val >= high) return high - 0.0001;
+        return val;
+    };
+
+    // Apply limits for totalfit AFTER setting initial values and clamping
+    totalfit->SetParameter(6, clamp(totalfit->GetParameter(6), 0.75, 0.85));
     totalfit->SetParLimits(6, 0.75, 0.85); // Omega Mean
+    totalfit->SetParameter(11, clamp(totalfit->GetParameter(11), 0.9, 1.1));
     totalfit->SetParLimits(11, 0.9, 1.1);   // Phi Mean
 
+    totalfit->SetParameter(7, clamp(totalfit->GetParameter(7), 0.01, 1.0));
     totalfit->SetParLimits(7, 0.01, 1.0);  // Omega Sigma
+    totalfit->SetParameter(12, clamp(totalfit->GetParameter(12), 0.01, 1.0));
     totalfit->SetParLimits(12, 0.01, 1.0); // Phi Sigma
 
+    totalfit->SetParameter(8, clamp(totalfit->GetParameter(8), 0.5, 3.0));
     totalfit->SetParLimits(8, 0.5, 3.0);   // Omega CB alpha
+    totalfit->SetParameter(9, clamp(totalfit->GetParameter(9), 1.0, 10.0));
     totalfit->SetParLimits(9, 1, 10.0);    // Omega CB n
+    totalfit->SetParameter(13, clamp(totalfit->GetParameter(13), 0.5, 3.0));
     totalfit->SetParLimits(13, 0.5, 3.0);  // Phi CB alpha
+    totalfit->SetParameter(14, clamp(totalfit->GetParameter(14), 1.0, 10.0));
     totalfit->SetParLimits(14, 1, 10.0);   // Phi CB n
 
     TFitResultPtr fitRes = Sig->Fit("totalfit", "RQS");
     if (fitRes.Get()) fitRes->Write("fitResult");
+    
+    // Save Peak-only histogram by subtracting final BG (raw counts)
+    TH1F *SigOnly = (TH1F *)Sig->Clone("LikeSignSig_PeakOnly");
+    SigOnly->SetTitle("Signal after subtracting final BG");
+    SigOnly->GetListOfFunctions()->Clear(); // Remove any associated fit functions
+    TF1 *fBG_final = new TF1("fBG_final", "pol4", 0.6, 1.4);
+    for(int i=0; i<5; ++i) fBG_final->SetParameter(i, totalfit->GetParameter(i));
+    for (int bin = 1; bin <= SigOnly->GetNbinsX(); ++bin) {
+        double binCenter = SigOnly->GetBinCenter(bin);
+        SigOnly->SetBinContent(bin, SigOnly->GetBinContent(bin) - fBG_final->Eval(binCenter));
+    }
+    
+    // Keep raw counts (do not normalize by event count and bin width)
+    Sig->SetYTitle("Counts / (Mass bin)");
+    SigOnly->SetYTitle("Counts / (Mass bin)");
+    
     Sig->Write("LikeSignSig_fit");
     totalfit->Write("totalfit");
+    SigOnly->Write("LikeSignSig_PeakOnly");
+
+    // Create a canvas to overlay Sig and PeakOnly (both already normalized)
+    TCanvas *cOverlay = new TCanvas("Signal_Overlay_Canvas", "Overlay of LS Signal and PeakOnly", 800, 600);
+    cOverlay->cd();
+    
+    Sig->SetLineColor(kBlack);
+    Sig->SetMarkerColor(kBlack);
+    Sig->SetMarkerStyle(20);
+    Sig->SetMarkerSize(0.7);
+    Sig->SetTitle("Signal Comparison;Mass (GeV/c^{2});dN/dm");
+    Sig->GetXaxis()->SetRangeUser(0.6, 1.4);
+    Sig->Draw("E");
+
+    SigOnly->SetLineColor(kRed);
+    SigOnly->SetMarkerColor(kRed);
+    SigOnly->SetMarkerStyle(20);
+    SigOnly->SetMarkerSize(0.7);
+    SigOnly->Draw("E SAME");
+
+    // --- Draw Fit Components ---
+    TF1 *fBG_draw = new TF1("fBG_draw", "pol4", 0.6, 1.2);
+    for(int i=0; i<5; ++i) fBG_draw->SetParameter(i, totalfit->GetParameter(i));
+    fBG_draw->SetLineColor(kGreen+2); fBG_draw->SetLineStyle(2); fBG_draw->SetLineWidth(2);
+
+    TF1 *fOmega_draw = new TF1("fOmega_draw", "crystalball", 0.6, 1.2);
+    for(int i=0; i<5; ++i) fOmega_draw->SetParameter(i, totalfit->GetParameter(5+i));
+    fOmega_draw->SetLineColor(kBlue); fOmega_draw->SetLineStyle(2); fOmega_draw->SetLineWidth(2);
+
+    TF1 *fPhi_draw = new TF1("fPhi_draw", "crystalball", 0.6, 1.2);
+    for(int i=0; i<5; ++i) fPhi_draw->SetParameter(i, totalfit->GetParameter(10+i));
+    fPhi_draw->SetLineColor(kRed); fPhi_draw->SetLineStyle(2); fPhi_draw->SetLineWidth(2);
+
+    fBG_draw->Draw("SAME"); fOmega_draw->Draw("SAME"); fPhi_draw->Draw("SAME");
+    totalfit->SetLineColor(kMagenta); totalfit->SetLineWidth(3);
+    totalfit->Draw("SAME");
+
+    TLegend *legOverlay = new TLegend(0.6, 0.6, 0.88, 0.88);
+    legOverlay->AddEntry(Sig, "Data (incl. BG)", "lep");
+    legOverlay->AddEntry(SigOnly, "Data (BG sub)", "lep");
+    legOverlay->AddEntry(totalfit, "Total Fit", "l");
+    legOverlay->AddEntry(fOmega_draw, "#omega Signal (CB)", "l");
+    legOverlay->AddEntry(fPhi_draw, "#phi Signal (CB)", "l");
+    legOverlay->AddEntry(fBG_draw, "Background (Pol4)", "l");
+    legOverlay->Draw();
+
+    cOverlay->Write();
+    delete cOverlay; delete legOverlay; delete fBG_draw; delete fOmega_draw; delete fPhi_draw;
 
     delete BGHistogram; delete SigHistogram; delete fitFunction; delete BGFunction;
-    delete omegafitfunc; delete phifitfunc; delete totalfit;
+    delete omegafitfunc; delete phifitfunc; delete totalfit; delete SigOnly; delete fBG_final;
 }
 
 void PeakFit_CrystalBall_pol4(TFile *input_Sig){
@@ -131,12 +210,15 @@ void PeakFit_CrystalBall_pol4(TFile *input_Sig){
                     TDirectory *outPtDir = outTopDir->mkdir(ptDirName);
                     outPtDir->cd();
                     TH1F *LikeSignSig = (TH1F *)ptDir->Get("LikeSignSig");
-                    if(LikeSignSig) Peakfit(LikeSignSig);
+                    TParameter<double> *pN = (TParameter<double> *)ptDir->Get("nEvents");
+                    double nEvents = (pN) ? pN->GetVal() : -1;
+                    if(LikeSignSig) Peakfit(LikeSignSig, nEvents);
                     
                     // フィット結果の抽出 (Peakfit内でoutPtDirにtotalfitが保存されていることを前提)
                     TF1 *totalfit = (TF1*)outPtDir->Get("totalfit");
                     TParameter<double> *pMin = (TParameter<double>*)ptDir->Get("ptmin");
                     TParameter<double> *pMax = (TParameter<double>*)ptDir->Get("ptmax");
+                    if (pN) pN->Write("nEvents");
 
                     if (totalfit && pMin && pMax) {
                         // Extract fit results for all bins

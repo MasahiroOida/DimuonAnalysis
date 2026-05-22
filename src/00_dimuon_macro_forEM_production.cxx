@@ -37,13 +37,13 @@ void dimuon_macro_forEM_production()
     YieldCalcuration_CrystalBall_pol4(outfile_PeakFit);
     TFile *outfile_Yield = new TFile("Yield_Results_CrystalBall_pol4.root");
 
-    TFile *inputEfficiency = new TFile("AcceptanceEfficiency.root");
+    TFile *inputEfficiency = new TFile("AcceptanceEfficiency_Both.root");
     if (inputEfficiency->IsZombie()) {
-        std::cout << "Warning: acceptance_weight.root not found. Stopping analysis before correction." << std::endl;
+        std::cout << "Warning: AcceptanceEfficiency_Both.root not found. Stopping analysis before correction." << std::endl;
         return;
     }
 
-    correction(inputResults_SE, outfile_Yield, inputEfficiency);
+    correction(inputResults_SE, outfile_Yield, inputEfficiency, "CB");
 }
 
 int main()

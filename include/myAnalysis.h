@@ -22,6 +22,6 @@ void _06_dR_MFTnCluster_Scan_2D();
 void _06_dR_MCHnCluster_Scan_2D();
 void _06_dR_Chi2_Scan_2D_pol4();
 void _06_dR_minpt_Scan_2D_pol4();
-void correction(TFile *input_Lumi,TFile *input_Yield, TFile *input_efficiency);
+void correction(TFile *input_Lumi,TFile *input_Yield, TFile *input_efficiency, TString fitType = "CB");
 
 #endif // MYANALYSIS

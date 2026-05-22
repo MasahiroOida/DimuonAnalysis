@@ -17,6 +17,7 @@
 #include <THashList.h>
 #include <TParameter.h>
 #include <THnSparse.h>
+#include <TObjString.h>
 
 void Making2DmassfromHnSparse(TFile *inputROOT, TDirectory *outfileDir, TString dirName) {
     outfileDir->cd();
@@ -32,7 +33,7 @@ void Making2DmassfromHnSparse(TFile *inputROOT, TDirectory *outfileDir, TString 
         THnSparse* hn_mix = (THnSparse*)inputROOT->Get(path_mix);
 
         if (!hn_same || !hn_mix) {
-            std::cout << "Warning: Could not find HnSparse at " << dirName << " for sign " << sign << std::endl;
+            std::cout << "Warning: Could find HnSparse at " << dirName << " for sign " << sign << std::endl;
             continue;
         }
         
@@ -112,7 +113,7 @@ void Projection(double Downpt, double Uppt, TH2 *SEPM2D, TH2 *SEPP2D, TH2 *SEMM2
     delete SEMM;
 }
 
-void make1Dfrom2Dhist(TDirectory *inputDir, TDirectory *outfile_projection){
+void make1Dfrom2Dhist(TDirectory *inputDir, TDirectory *outfile_projection, double nEvents = -1){
     TH2D* SEPM2D = (TH2D*)inputDir->Get("Mass_pt_same_uls");
     TH2D* SEPP2D = (TH2D*)inputDir->Get("Mass_pt_same_lspp");
     TH2D* SEMM2D = (TH2D*)inputDir->Get("Mass_pt_same_lsmm");
@@ -125,31 +126,35 @@ void make1Dfrom2Dhist(TDirectory *inputDir, TDirectory *outfile_projection){
         return;
     }
 
+    TAxis *ptAxis = SEPM2D->GetYaxis();
+    double ptMin_all = ptAxis->GetXmin();
+    double ptMax_all = ptAxis->GetXmax();
+
     // All pt
-    TDirectory *allpt_Dir = outfile_projection->mkdir("Pt_0to10");
+    TString allPtDirName = Form("Pt_%.1fto%.1f", ptMin_all, ptMax_all);
+    TDirectory *allpt_Dir = outfile_projection->mkdir(allPtDirName);
     allpt_Dir->cd();
-    (new TParameter<double>("ptrange", 10))->Write();
-    (new TParameter<double>("ptmin", 0))->Write();
-    (new TParameter<double>("ptmax", 10))->Write();
-    Projection(0, 10, SEPM2D, SEPP2D, SEMM2D, MEPM2D, MEPP2D, MEMM2D);    
+    (new TParameter<double>("ptrange", ptMax_all - ptMin_all))->Write();
+    (new TParameter<double>("ptmin", ptMin_all))->Write();
+    (new TParameter<double>("ptmax", ptMax_all))->Write();
+    if (nEvents > 0) (new TParameter<double>("nEvents", nEvents))->Write();
+    Projection(ptMin_all, ptMax_all, SEPM2D, SEPP2D, SEMM2D, MEPM2D, MEPP2D, MEMM2D);    
 
-    std::vector<std::pair<double, double>> pt_bins;
-    for (double pt = 0.0; pt < 10.0; pt += 0.5) {
-        pt_bins.push_back({pt, pt + 0.5});
-    }
+    std::vector<double> pt_edges = {0, 0.5, 0.75, 1, 1.5, 2.0, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10};
 
-    for (const auto& bin : pt_bins)
+    for (size_t i = 0; i < pt_edges.size() - 1; ++i)
     {
-        double pt_min = bin.first;
-        double pt_max = bin.second;
+        double pt_min = pt_edges[i];
+        double pt_max = pt_edges[i+1];
         double ptrange = pt_max - pt_min;
-        TString dirName = Form("Pt_%.1fto%.1f", pt_min, pt_max);
+        TString dirName = Form("Pt_%.2fto%.2f", pt_min, pt_max);
         TDirectory *newDir = outfile_projection->mkdir(dirName);
         newDir->cd();
         Projection(pt_min, pt_max, SEPM2D, SEPP2D, SEMM2D, MEPM2D, MEPP2D, MEMM2D);
         (new TParameter<double>("ptrange", ptrange))->Write();
         (new TParameter<double>("ptmin", pt_min))->Write();
         (new TParameter<double>("ptmax", pt_max))->Write();
+        if (nEvents > 0) (new TParameter<double>("nEvents", nEvents))->Write();
     }
 
     delete SEPM2D;
@@ -160,7 +165,50 @@ void make1Dfrom2Dhist(TDirectory *inputDir, TDirectory *outfile_projection){
     delete MEMM2D;
 }
 
-void Making2DmassfromHnSparse_mc(TFile *inputROOT, TDirectory *outfileDir, TString dirName, TDirectory *outfile1DDir = nullptr) {
+void Making1DfromHnSparse(TFile *inputAnalysisResult_EM){
+    TFile *outfile_2D = new TFile("Made2Dhist.root","RECREATE");
+    TFile *outfile_1D = new TFile("Made1Dhist.root","RECREATE");
+    
+    // Extract event count (from dimuon/Event/after/hZVtx entries as requested)
+    double nEvents = -1;
+    TH1D *hZVtx = (TH1D *)inputAnalysisResult_EM->Get("dimuon/Event/after/hZvtx");
+    if (hZVtx) {
+        nEvents = hZVtx->GetEntries();
+        std::cout << "Extracted nEvents (from hZVtx): " << nEvents << std::endl;
+    } else {
+        TH1D *hTVX = (TH1D *)inputAnalysisResult_EM->Get("dimuon/BC/hTVXCounter");
+        if (hTVX) {
+            nEvents = hTVX->GetBinContent(6);
+            std::cout << "Extracted nEvents (from hTVX bin 6): " << nEvents << std::endl;
+        } else {
+            std::cerr << "Warning: Neither hZVtx nor hTVXCounter found. nEvents will not be saved." << std::endl;
+        }
+    }
+
+    TIter next(inputAnalysisResult_EM->GetListOfKeys());
+    TKey *key;
+    while ((key = (TKey *)next())) {
+        if (TString(key->GetClassName()) == "TDirectoryFile") {
+            TString dirName = key->GetName();
+            TDirectory *dir = (TDirectory*)inputAnalysisResult_EM->Get(dirName);
+            if (dir->Get("Pair")) {
+                std::cout << "Processing directory: " << dirName << std::endl;
+                TDirectory *dir2D = outfile_2D->mkdir(dirName);
+                TDirectory *dir1D = outfile_1D->mkdir(dirName);
+                
+                Making2DmassfromHnSparse(inputAnalysisResult_EM, dir2D, dirName);
+                make1Dfrom2Dhist(dir2D, dir1D, nEvents);
+            }
+        }
+    }
+    
+    outfile_2D->Close();
+    outfile_1D->Close();
+    delete outfile_2D;
+    delete outfile_1D;
+}
+
+void Making2DmassfromHnSparse_mc(TDirectory *inputROOT, TDirectory *outfileDir, TString dirName, TDirectory *outfile1DDir = nullptr) {
     outfileDir->cd();
     
     bool isGenerated = dirName.Contains("Generated");
@@ -266,41 +314,12 @@ void Making2DmassfromHnSparse_mc(TFile *inputROOT, TDirectory *outfileDir, TStri
     }
 }
 
-void Making1DfromHnSparse(TFile *inputAnalysisResult_EM){
-    TFile *outfile_2D = new TFile("Made2Dhist.root","RECREATE");
-    TFile *outfile_1D = new TFile("Made1Dhist.root","RECREATE");
-    
-    TIter next(inputAnalysisResult_EM->GetListOfKeys());
-    TKey *key;
-    while ((key = (TKey *)next())) {
-        if (TString(key->GetClassName()) == "TDirectoryFile") {
-            TString dirName = key->GetName();
-            TDirectory *dir = (TDirectory*)inputAnalysisResult_EM->Get(dirName);
-            if (dir->Get("Pair")) {
-                std::cout << "Processing directory: " << dirName << std::endl;
-                TDirectory *dir2D = outfile_2D->mkdir(dirName);
-                TDirectory *dir1D = outfile_1D->mkdir(dirName);
-                
-                Making2DmassfromHnSparse(inputAnalysisResult_EM, dir2D, dirName);
-                make1Dfrom2Dhist(dir2D, dir1D);
-            }
-        }
-    }
-    
-    outfile_2D->Close();
-    outfile_1D->Close();
-    delete outfile_2D;
-    delete outfile_1D;
-}
-
-void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, THnSparse *hn) {
+void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, THnSparse *hn, double nEvents = -1) {
     if (!hn) return;
 
-    // pT bins: 0.5 GeV steps from 0.0 to 10.0
-    std::vector<std::pair<double, double>> pt_bins;
-    for (double pt = 0.0; pt < 10.0; pt += 0.5) {
-        pt_bins.push_back({pt, pt + 0.5});
-    }
+    int ptDim = 1;
+    int massDim = 0;
+    int yDim = 2;
 
     // Y bins
     std::vector<std::pair<double, double>> y_bins;
@@ -308,26 +327,23 @@ void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, T
         y_bins.push_back({y, y + 0.25});
     }
 
-    int ptDim = 1;
-    int massDim = 0;
-    int yDim = 2;
+    TAxis *ptAxis = hn->GetAxis(ptDim);
 
-    // Process Pt bins
-    for (const auto& bin : pt_bins) {
-        double pt_min = bin.first;
-        double pt_max = bin.second;
-        TString dirName = Form("Pt_%.1fto%.1f", pt_min, pt_max);
+    // All pt (0-10 GeV)
+    {
+        double pt_min = 0.0;
+        double pt_max = 10.0;
+        TString dirName = Form("Pt_%.2fto%.2f", pt_min, pt_max);
         TDirectory *newDir = outfile_projection->mkdir(dirName);
         newDir->cd();
 
-        TAxis *ptAxis = hn->GetAxis(ptDim);
         int binMin = ptAxis->FindBin(pt_min + 1e-6);
         int binMax = ptAxis->FindBin(pt_max - 1e-6);
         ptAxis->SetRange(binMin, binMax);
 
         TH1D *hMass = (TH1D*)hn->Projection(massDim);
         hMass->SetName("SEPM");
-        hMass->SetTitle(Form("Mass distribution (%.1f < p_{T} < %.1f)", pt_min, pt_max));
+        hMass->SetTitle(Form("Mass distribution (%.2f < p_{T} < %.2f)", pt_min, pt_max));
         hMass->Write();
         delete hMass;
 
@@ -338,6 +354,39 @@ void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, T
 
         (new TParameter<double>("ptmin", pt_min))->Write();
         (new TParameter<double>("ptmax", pt_max))->Write();
+        if (nEvents > 0) (new TParameter<double>("nEvents", nEvents))->Write();
+        
+        ptAxis->SetRange(0, 0);
+    }
+
+    std::vector<double> pt_edges = {0, 0.5, 0.75, 1, 1.5, 2.0, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10};
+
+    // Process Pt bins
+    for (size_t i = 0; i < pt_edges.size() - 1; ++i) {
+        double pt_min = pt_edges[i];
+        double pt_max = pt_edges[i+1];
+        TString dirName = Form("Pt_%.2fto%.2f", pt_min, pt_max);
+        TDirectory *newDir = outfile_projection->mkdir(dirName);
+        newDir->cd();
+
+        int binMin = ptAxis->FindBin(pt_min + 1e-6);
+        int binMax = ptAxis->FindBin(pt_max - 1e-6);
+        ptAxis->SetRange(binMin, binMax);
+
+        TH1D *hMass = (TH1D*)hn->Projection(massDim);
+        hMass->SetName("SEPM");
+        hMass->SetTitle(Form("Mass distribution (%.2f < p_{T} < %.2f)", pt_min, pt_max));
+        hMass->Write();
+        delete hMass;
+
+        TH1D *hPt = (TH1D*)hn->Projection(ptDim);
+        hPt->SetName("Pt");
+        hPt->Write();
+        delete hPt;
+
+        (new TParameter<double>("ptmin", pt_min))->Write();
+        (new TParameter<double>("ptmax", pt_max))->Write();
+        if (nEvents > 0) (new TParameter<double>("nEvents", nEvents))->Write();
         
         ptAxis->SetRange(0, 0);
     }
@@ -368,6 +417,7 @@ void make1Dfrom2Dhist_mc(TDirectory *inputDir, TDirectory *outfile_projection, T
 
         (new TParameter<double>("ymin", y_min))->Write();
         (new TParameter<double>("ymax", y_max))->Write();
+        if (nEvents > 0) (new TParameter<double>("nEvents", nEvents))->Write();
         
         yAxis->SetRange(0, 0);
     }
@@ -377,68 +427,99 @@ void Making1DfromHnSparse_mc(TFile *inputAnalysisResult_EM_mc){
     TFile *outfile_2D = new TFile("Made2Dhist_mc.root","RECREATE");
     TFile *outfile_1D = new TFile("Made1Dhist_mc.root","RECREATE");
     
-    std::vector<TString> particles = {"Omega", "Phi"};
-    std::vector<TString> categories = {"All", "Acc", "Reco"};
+    TIter nextKey(inputAnalysisResult_EM_mc->GetListOfKeys());
+    TKey *key;
+    while ((key = (TKey*)nextKey())) {
+        TString topDirName = key->GetName();
+        if (!topDirName.BeginsWith("dimuon-mc")) continue;
+        
+        TDirectory *topDirInput = (TDirectory*)key->ReadObj();
+        std::cout << "Processing MC Top Directory: " << topDirName << std::endl;
 
-    for (const auto& part : particles) {
-        for (const auto& cat : categories) {
-            TString path;
-            TString outName;
-            if (cat == "All") {
-                path = Form("dimuon-mc_Accepted/Generated/VM/All/%s", part.Data());
-                outName = Form("Generated_All/%s", part.Data());
-            } else if (cat == "Acc") {
-                path = Form("dimuon-mc_Accepted/Generated/VM/Acc/%s", part.Data());
-                outName = Form("Generated_Acc/%s", part.Data());
-            } else if (cat == "Reco") {
-                path = Form("dimuon-mc_Accepted/Pair/sm/%s2ll", part.Data());
-                outName = Form("Reconstructed/%s", part.Data());
+        // Extract event count from MC input (Event/after/hZVtx entries)
+        double nEvents = -1;
+        TH1D *hZVtx = (TH1D *)topDirInput->Get("Event/after/hZvtx");
+        if (hZVtx) {
+            nEvents = hZVtx->GetEntries();
+            std::cout << "  Extracted nEvents (from hZVtx): " << nEvents << std::endl;
+        } else {
+            TH1D *hTVX = (TH1D *)topDirInput->Get("BC/hTVXCounter");
+            if (hTVX) {
+                nEvents = hTVX->GetBinContent(6);
+                std::cout << "  Extracted nEvents (from hTVX bin 6): " << nEvents << std::endl;
             }
+        }
 
-            TDirectory *dirCheck = (TDirectory*)inputAnalysisResult_EM_mc->Get(path);
-            if (!dirCheck) {
-                std::cout << "Warning: Directory " << path << " not found!" << std::endl;
-                continue;
-            }
+        std::vector<TString> particles = {"Omega", "Phi"};
+        std::vector<TString> categories = {"All", "Acc", "Reco"};
 
-            std::cout << "Processing MC " << cat << " directory: " << path << std::endl;
-            TDirectory *dir2D = outfile_2D->mkdir(outName);
-            TDirectory *dir1D = outfile_1D->mkdir(outName);
-            
-            // THnSparse を取得して直接渡す
-            THnSparse *hn = nullptr;
-            TString hsPath = (cat == "Reco") ? path + "/uls/hs" : path + "/hs";
-            TObject *obj = inputAnalysisResult_EM_mc->Get(hsPath);
-            
-            if (!obj || !obj->InheritsFrom(THnSparse::Class())) {
-                // 見つからない場合はディレクトリ内を再帰的に探索
-                TDirectory *searchDir = (TDirectory*)inputAnalysisResult_EM_mc->Get(path);
-                if (searchDir) {
-                    // Recoの場合はまず "uls" を見る
-                    if (cat == "Reco") {
-                        TDirectory *ulsDir = (TDirectory*)searchDir->Get("uls");
-                        if (ulsDir) searchDir = ulsDir;
-                    }
-                    
-                    TIter next(searchDir->GetListOfKeys());
-                    TKey *key;
-                    while ((key = (TKey*)next())) {
-                        TObject *tmp = searchDir->Get(key->GetName());
-                        if (tmp && tmp->InheritsFrom(THnSparse::Class())) {
-                            hn = (THnSparse*)tmp;
-                            break;
+        for (const auto& part : particles) {
+            for (const auto& cat : categories) {
+                TString path;
+                TString outNameBase;
+                if (cat == "All") {
+                    path = Form("Generated/VM/All/%s", part.Data());
+                    outNameBase = Form("Generated_All/%s", part.Data());
+                } else if (cat == "Acc") {
+                    path = Form("Generated/VM/Acc/%s", part.Data());
+                    outNameBase = Form("Generated_Acc/%s", part.Data());
+                } else if (cat == "Reco") {
+                    path = Form("Pair/sm/%s2ll", part.Data());
+                    outNameBase = Form("Reconstructed/%s", part.Data());
+                }
+
+                TString outName = topDirName + "/" + outNameBase;
+                TDirectory *dirCheck = (TDirectory*)topDirInput->Get(path);
+                if (!dirCheck) continue;
+
+                std::cout << "  Processing " << cat << " for " << part << " at " << path << std::endl;
+                
+                // Create recursive directories in output
+                TString currentPath = "";
+                TObjArray *parts = outName.Tokenize("/");
+                TDirectory *current2DDir = outfile_2D;
+                TDirectory *current1DDir = outfile_1D;
+                for (int i = 0; i < parts->GetEntries(); i++) {
+                    TString sub = ((TObjString*)parts->At(i))->GetString();
+                    TDirectory *next2D = current2DDir->GetDirectory(sub);
+                    if (!next2D) next2D = current2DDir->mkdir(sub);
+                    current2DDir = next2D;
+
+                    TDirectory *next1D = current1DDir->GetDirectory(sub);
+                    if (!next1D) next1D = current1DDir->mkdir(sub);
+                    current1DDir = next1D;
+                }
+                delete parts;
+
+                THnSparse *hn = nullptr;
+                TString hsPath = (cat == "Reco") ? path + "/uls/hs" : path + "/hs";
+                TObject *obj = topDirInput->Get(hsPath);
+                
+                if (!obj || !obj->InheritsFrom(THnSparse::Class())) {
+                    TDirectory *searchDir = (TDirectory*)topDirInput->Get(path);
+                    if (searchDir) {
+                        if (cat == "Reco") {
+                            TDirectory *ulsDir = (TDirectory*)searchDir->Get("uls");
+                            if (ulsDir) searchDir = ulsDir;
+                        }
+                        TIter next(searchDir->GetListOfKeys());
+                        TKey *k;
+                        while ((k = (TKey*)next())) {
+                            TObject *tmp = searchDir->Get(k->GetName());
+                            if (tmp && tmp->InheritsFrom(THnSparse::Class())) {
+                                hn = (THnSparse*)tmp;
+                                break;
+                            }
                         }
                     }
+                } else {
+                    hn = (THnSparse*)obj;
                 }
-            } else {
-                hn = (THnSparse*)obj;
-            }
 
-            Making2DmassfromHnSparse_mc(inputAnalysisResult_EM_mc, dir2D, path, dir1D);
-            if (hn) {
-                make1Dfrom2Dhist_mc(dir2D, dir1D, hn);
-            } else {
-                std::cout << "Warning: No THnSparse found for " << outName << ", skipping custom pT projection." << std::endl;
+                Making2DmassfromHnSparse_mc(topDirInput, current2DDir, path, current1DDir);
+                if (hn) {
+                    make1Dfrom2Dhist_mc(current2DDir, current1DDir, hn, nEvents);
+                }
             }
         }
     }

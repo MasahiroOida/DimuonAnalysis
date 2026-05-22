@@ -13,6 +13,7 @@
 #include <TKey.h>
 #include <TParameter.h>
 #include <TPaveStats.h>
+
 struct PeakfitResult
 {
     TF1 *totalfitfunction;
@@ -44,14 +45,15 @@ static Double_t myFreeFunction(Double_t *x, Double_t *par)
     return 0;
 };
 
-static void Peakfit(TH1 *Sig)
+static void Peakfit(TH1 *Sig, double nEvents = -1)
 {
     TH1::SetDefaultSumw2();
     // Clone the Histogram
     if (Sig == nullptr)
     {
-        std::cout << "Sig = nullptr" << std::endl;
-    };
+        std::cout << "Sig = nullptr. Skipping fit." << std::endl;
+        return;
+    }
     TH1F *BGHistogram = (TH1F *)Sig->Clone("BGHistogram");
     TH1F *SigHistogram = (TH1F *)Sig->Clone("SigHistogram");
     // Define split position
@@ -64,7 +66,7 @@ static void Peakfit(TH1 *Sig)
     for (int bin = 1; bin <= BGHistogram->GetNbinsX(); ++bin)
     {
         double binCenter = BGHistogram->GetBinCenter(bin);
-        if (binCenter >= splitLow1 && binCenter <= splitHigh1 || binCenter >= splitLow2 && binCenter <= splitHigh2)
+        if ((binCenter >= splitLow1 && binCenter <= splitHigh1) || (binCenter >= splitLow2 && binCenter <= splitHigh2))
         {
             BGHistogram->SetBinContent(bin, 0);
         }
@@ -115,7 +117,8 @@ static void Peakfit(TH1 *Sig)
     double param7 = phifitfunc->GetParameter(2);
 
     TF1 *totalfit = new TF1("totalfit", "[0]*exp(-[1]*x)+[2]*exp(-(x-[3])*(x-[3])/[4]/[4]/2)+[5]*exp(-(x-[6])*(x-[6])/[7]/[7]/2)", 0.5, 1.3);
-    totalfit->SetParameters(param0, param1, param2, param3, param4, param5, param6, param7, param2 / 20, 0.20);
+    
+    // Set parameter names first
     totalfit->SetParName(0, "N_{BG}");            // p0 → Constant
     totalfit->SetParName(1, "#alpha");            // p1 → Mean
     totalfit->SetParName(2, "N_{#omega}");        // p0 → Constant
@@ -124,15 +127,53 @@ static void Peakfit(TH1 *Sig)
     totalfit->SetParName(5, "N_{#phi}");          // p0 → Constant
     totalfit->SetParName(6, "#phi mean mass");    // p1 → Mean
     totalfit->SetParName(7, "#phi mass width");   // p2 → Sigma
+
+    totalfit->SetParameters(param0, param1, param2, param3, param4, param5, param6, param7);
+
+    auto clamp = [](double val, double low, double high) {
+        if (val <= low) return low + 0.0001;
+        if (val >= high) return high - 0.0001;
+        return val;
+    };
+
+    // Apply limits AFTER setting parameters and clamping
+    totalfit->SetParameter(3, clamp(totalfit->GetParameter(3), 0.75, 0.85));
+    totalfit->SetParLimits(3, 0.75, 0.85);
+    totalfit->SetParameter(4, clamp(totalfit->GetParameter(4), 0.01, 0.5));
+    totalfit->SetParLimits(4, 0.01, 0.5);
+    totalfit->SetParameter(6, clamp(totalfit->GetParameter(6), 0.9, 1.1));
+    totalfit->SetParLimits(6, 0.9, 1.1);
+    totalfit->SetParameter(7, clamp(totalfit->GetParameter(7), 0.01, 0.5));
+    totalfit->SetParLimits(7, 0.01, 0.5);
+    
     double exact1 = totalfit->GetParameter(3);
     double exact2 = totalfit->GetParameter(4);
     double exact3 = totalfit->GetParameter(6);
     double exact4 = totalfit->GetParameter(7);
     TFitResultPtr fitResult = Sig->Fit("totalfit", "RQS");
+    
+    // Save Peak-only histogram by subtracting final BG (raw counts)
+    TH1F *SigOnly = (TH1F *)Sig->Clone("LikeSignSig_PeakOnly");
+    SigOnly->SetTitle("Signal after subtracting final BG");
+    SigOnly->GetListOfFunctions()->Clear(); // Remove any associated fit functions
+    TF1 *fBG_final = new TF1("fBG_final", "[0]*exp(-[1]*x)", 0.5, 1.3);
+    fBG_final->SetParameters(totalfit->GetParameter(0), totalfit->GetParameter(1));
+    for (int bin = 1; bin <= SigOnly->GetNbinsX(); ++bin) {
+        double binCenter = SigOnly->GetBinCenter(bin);
+        SigOnly->SetBinContent(bin, SigOnly->GetBinContent(bin) - fBG_final->Eval(binCenter));
+    }
+
     double Norm = totalfit->GetParameter(2);
     double Norm2 = totalfit->GetParameter(5);
     double Norm3 = totalfit->GetParameter(0);
     double Norm4 = totalfit->GetParameter(1);
+
+    // Keep raw counts (do not normalize by event count and bin width)
+    Sig->SetYTitle("Counts / (Mass bin)");
+    SigOnly->SetYTitle("Counts / (Mass bin)");
+    SigHistogram->SetYTitle("Counts / (Mass bin)");
+    BGHistogram->SetYTitle("Counts / (Mass bin)");
+
     TF1 *func5 = new TF1("func5", "[0]*exp(-(x-[1])*(x-[1])/[2]/[2]/2)+[3]*exp(-(x-[4])*(x-[4])/[5]/[5]/2)", 0.5, 1.3);
     func5->SetParameters(Norm, exact1, exact2, Norm2, exact3, exact4);
 
@@ -142,6 +183,7 @@ static void Peakfit(TH1 *Sig)
     phifunc->SetParameters(Norm2, exact3, exact4);
     TF1 *BGfunc = new TF1("BGFunction", "[0]*exp(-[1]*x)", 0.5, 1.3);
     BGfunc->SetParameters(Norm3, Norm4);
+
     // Define Color
     Sig->SetLineColor(kBlack);
     omegafitfunc->SetLineColor(kBlack);
@@ -171,7 +213,7 @@ static void Peakfit(TH1 *Sig)
     Sig->GetYaxis()->SetTitle("dN/dm");
     Sig->SetTitle("");
     Sig->GetXaxis()->SetRangeUser(0, 2);
-    Sig->GetYaxis()->SetRangeUser(1, Norm3 * 2.5); // 範囲を2から8に設定
+    Sig->GetYaxis()->SetRangeUser(0, Norm3 * 2.5); 
     Sig->SetMarkerSize(0.7);
     Sig->SetMarkerStyle(8);
     totalfit->Draw("same");
@@ -200,10 +242,9 @@ static void Peakfit(TH1 *Sig)
     canvas2->SetGrid();            // グリッドを表示
     SigHistogram->Draw();
     SigHistogram->GetXaxis()->SetTitle("Dimuon invariant mass GeV/c^{2}");
-    SigHistogram->GetYaxis()->SetTitle("#frac{dN}{dm}");
+    SigHistogram->GetYaxis()->SetTitle("dN/dm");
     SigHistogram->SetTitle("Likesign method Signal");
     SigHistogram->GetXaxis()->SetRangeUser(0, 2);
-    SigHistogram->GetYaxis()->SetRangeUser(1, 10000); // 範囲を2から8に設定
     omegafitfunc->Draw("same");
 
     TCanvas *canvas3 = new TCanvas("canvas3", "canvas3", 800, 600);
@@ -211,11 +252,9 @@ static void Peakfit(TH1 *Sig)
     canvas3->SetGrid();            // グリッドを表示
     BGHistogram->Draw();
     BGHistogram->GetXaxis()->SetTitle("Dimuon invariant mass GeV/c^{2}");
-    BGHistogram->GetYaxis()->SetTitle("#frac{dN}{dm}");
+    BGHistogram->GetYaxis()->SetTitle("dN/dm");
     BGHistogram->SetTitle("Likesign method Signal");
     BGHistogram->GetXaxis()->SetRangeUser(0, 2);
-
-    BGHistogram->GetYaxis()->SetRangeUser(1, 10000); // 範囲を2から8に設定
     BGFunction->Draw("same");
 
     canvas1->Write("Total Fit");
@@ -231,6 +270,55 @@ static void Peakfit(TH1 *Sig)
     fitFunction->Write();
     BGFunction->Write();
 
+    SigOnly->Write("LikeSignSig_PeakOnly");
+
+    // Create a canvas to overlay Sig and PeakOnly (both already normalized)
+    TCanvas *cOverlay = new TCanvas("Signal_Overlay_Canvas", "Overlay of LS Signal and PeakOnly", 800, 600);
+    cOverlay->cd();
+    
+    Sig->SetLineColor(kBlack);
+    Sig->SetMarkerColor(kBlack);
+    Sig->SetMarkerStyle(20);
+    Sig->SetMarkerSize(0.7);
+    Sig->SetTitle("Signal Comparison;Mass (GeV/c^{2});dN/dm");
+    Sig->GetXaxis()->SetRangeUser(0.6, 1.4);
+    Sig->Draw("E");
+
+    SigOnly->SetLineColor(kRed);
+    SigOnly->SetMarkerColor(kRed);
+    SigOnly->SetMarkerStyle(20);
+    SigOnly->SetMarkerSize(0.7);
+    SigOnly->Draw("E SAME");
+
+    // --- Draw Fit Components ---
+    TF1 *fBG_draw = new TF1("fBG_draw", "[0]*exp(-[1]*x)", 0.6, 1.2);
+    fBG_draw->SetParameters(totalfit->GetParameter(0), totalfit->GetParameter(1));
+    fBG_draw->SetLineColor(kGreen+2); fBG_draw->SetLineStyle(2); fBG_draw->SetLineWidth(2);
+
+    TF1 *fOmega_draw = new TF1("fOmega_draw", "[0]*exp(-(x-[1])*(x-[1])/[2]/[2]/2)", 0.6, 1.2);
+    fOmega_draw->SetParameters(totalfit->GetParameter(2), totalfit->GetParameter(3), totalfit->GetParameter(4));
+    fOmega_draw->SetLineColor(kBlue); fOmega_draw->SetLineStyle(2); fOmega_draw->SetLineWidth(2);
+
+    TF1 *fPhi_draw = new TF1("fPhi_draw", "[0]*exp(-(x-[1])*(x-[1])/[2]/[2]/2)", 0.6, 1.2);
+    fPhi_draw->SetParameters(totalfit->GetParameter(5), totalfit->GetParameter(6), totalfit->GetParameter(7));
+    fPhi_draw->SetLineColor(kRed); fPhi_draw->SetLineStyle(2); fPhi_draw->SetLineWidth(2);
+
+    fBG_draw->Draw("SAME"); fOmega_draw->Draw("SAME"); fPhi_draw->Draw("SAME");
+    totalfit->SetLineColor(kMagenta); totalfit->SetLineWidth(3);
+    totalfit->Draw("SAME");
+
+    TLegend *legOverlay = new TLegend(0.6, 0.6, 0.88, 0.88);
+    legOverlay->AddEntry(Sig, "Data (incl. BG)", "lep");
+    legOverlay->AddEntry(SigOnly, "Data (BG sub)", "lep");
+    legOverlay->AddEntry(totalfit, "Total Fit", "l");
+    legOverlay->AddEntry(fOmega_draw, "#omega Signal (Gauss)", "l");
+    legOverlay->AddEntry(fPhi_draw, "#phi Signal (Gauss)", "l");
+    legOverlay->AddEntry(fBG_draw, "Background (Exp)", "l");
+    legOverlay->Draw();
+
+    cOverlay->Write();
+    delete cOverlay; delete legOverlay; delete fBG_draw; delete fOmega_draw; delete fPhi_draw;
+
     delete BGHistogram;
     delete SigHistogram;
     delete fitFunction;
@@ -243,39 +331,47 @@ static void Peakfit(TH1 *Sig)
     delete canvas1;
     delete canvas2;
     delete canvas3;
+    delete SigOnly;
+    delete fBG_final;
 }
 
 void PeakFit_Gauss(TFile *input_Sig){
     TFile *outfile_PeakFit = new TFile("PeakFit_Gauss_Results.root", "RECREATE");
-    std::vector<std::string> directoryNames;
     TIter next(input_Sig->GetListOfKeys());
     TKey *key;
     while ((key = (TKey *)next()))
     {
-        // オブジェクトのクラス名を取得
-        std::string className = key->GetClassName();
-
-        // TDirectoryの場合、その名前をベクトルに追加
-        if (className == "TDirectoryFile")
+        if (TString(key->GetClassName()) == "TDirectoryFile")
         {
-            TDirectory *dir = (TDirectory *)key->ReadObj();
-            directoryNames.push_back(dir->GetName());
+            TDirectory *topDir = (TDirectory *)key->ReadObj();
+            TDirectory *outTopDir = outfile_PeakFit->mkdir(topDir->GetName());
+            
+            TIter nextPt(topDir->GetListOfKeys());
+            TKey *keyPt;
+            while ((keyPt = (TKey *)nextPt()))
+            {
+                if (TString(keyPt->GetClassName()) == "TDirectoryFile")
+                {
+                    TDirectory *ptDir = (TDirectory *)keyPt->ReadObj();
+                    TDirectory *outPtDir = outTopDir->mkdir(ptDir->GetName());
+                    outfile_PeakFit->cd();
+                    outPtDir->cd();
+                    
+                    TH1F *LikeSignSig = (TH1F *)ptDir->Get("LikeSignSig");
+                    TParameter<double> *pN = (TParameter<double> *)ptDir->Get("nEvents");
+                    double nEvents = (pN) ? pN->GetVal() : -1;
+                    Peakfit(LikeSignSig, nEvents);
+                    
+                    TParameter<double>* param_ptrange = (TParameter<double>*)ptDir->Get("ptrange");
+                    if (param_ptrange) param_ptrange->Write("ptrange");
+                    TParameter<double>* param_ptmin = (TParameter<double>*)ptDir->Get("ptmin");
+                    if (param_ptmin) param_ptmin -> Write("ptmin");
+                    TParameter<double>* param_ptmax = (TParameter<double>*)ptDir->Get("ptmax");
+                    if (param_ptmax) param_ptmax -> Write("ptmax"); 
+                    if (pN) pN->Write("nEvents");
+                }
+            }
         }
-    }
-    for (const auto &name : directoryNames)
-    {   
-        TDirectoryFile *dir = (TDirectoryFile *)input_Sig->Get(name.c_str());
-        TDirectory *newDir = outfile_PeakFit->mkdir(name.c_str());
-        outfile_PeakFit->cd();
-        newDir->cd();
-        TH1F *LikeSignSig = (TH1F *)dir->Get("LikeSignSig");
-        Peakfit(LikeSignSig);
-        TParameter<double>* param_ptrange = (TParameter<double>*)dir->Get("ptrange");
-        param_ptrange->Write("ptrange");
-        TParameter<double>* param_ptmin = (TParameter<double>*)dir->Get("ptmin");
-        param_ptmin -> Write("ptmin");
-        TParameter<double>* param_ptmax = (TParameter<double>*)dir->Get("ptmax");
-        param_ptmax -> Write("ptmax"); 
     }
     outfile_PeakFit -> Close();
     delete outfile_PeakFit;

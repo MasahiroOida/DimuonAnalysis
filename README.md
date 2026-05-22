@@ -64,6 +64,31 @@ g++ src/00_dimuon_macro_forEM_production.cxx \
     -Iinclude `root-config --cflags --libs` -o macros/run_production
 ```
 
+### 3-2. Production Cross Section Gauss and exp(Independent Compilation)
+If you need to compile only the production cross section part:
+```bash
+g++ src/00_dimuon_macro_forEM_production_gauss_exp.cxx \
+    src/01_Making1DmassfromHnSparse.cxx \
+    src/02_LikeSignMethod.cxx \
+    src/03_PeakFit_Gauss.cxx \
+    src/04_YieldCalcuration_Gauss.cxx \
+    src/05_correction.cxx \
+    -Iinclude `root-config --cflags --libs` -o macros/run_production_gauss_exp
+```
+
+### 3-3. Production Cross Section CrystalBall and exp(Independent Compilation)
+If you need to compile only the production cross section part:
+```bash
+g++ src/00_dimuon_macro_forEM_production_CB_exp.cxx \
+    src/01_Making1DmassfromHnSparse.cxx \
+    src/02_LikeSignMethod.cxx \
+    src/03_PeakFit_CrystalBall.cxx \
+    src/04_YieldCalcuration_CrystalBall.cxx \
+    src/05_correction.cxx \
+    -Iinclude `root-config --cflags --libs` -o macros/run_production_cb_exp
+```
+
+
 ## How to Run
 
 1. **Calculate Acceptance & Efficiency**:
